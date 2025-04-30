@@ -1802,4 +1802,9 @@ public class SqlDialect {
           conformance, nullCollation, dataTypeSystem, jethroInfo);
     }
   }
+
+  // 공간 함수 지원 여부 확인
+  public boolean supportsSpatialFunction(List<RexNode> projects) {
+    return false;
+  }
 }

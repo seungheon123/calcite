@@ -24,6 +24,8 @@ import org.apache.calcite.rel.core.JoinRelType;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeSystem;
 import org.apache.calcite.rel.type.RelDataTypeSystemImpl;
+import org.apache.calcite.rex.RexCall;
+import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlAlienSystemTypeNameSpec;
 import org.apache.calcite.sql.SqlBasicCall;
 import org.apache.calcite.sql.SqlBasicFunction;
@@ -38,6 +40,7 @@ import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlLiteral;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
+import org.apache.calcite.sql.SqlOperator;
 import org.apache.calcite.sql.SqlSelect;
 import org.apache.calcite.sql.SqlWriter;
 import org.apache.calcite.sql.fun.SqlCase;
@@ -50,10 +53,13 @@ import org.apache.calcite.sql.type.ReturnTypes;
 import org.apache.calcite.sql.type.SqlTypeName;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * A <code>SqlDialect</code> implementation for the MySQL database.
@@ -225,6 +231,30 @@ public class MysqlSqlDialect extends SqlDialect {
 
   @Override public void unparseCall(SqlWriter writer, SqlCall call,
       int leftPrec, int rightPrec) {
+    String functionName = call.getOperator().getName();
+
+    // CAST to GEOMETRY 처리
+    if (call.getKind() == SqlKind.CAST) {
+      SqlNode operand = call.operand(0);
+      String literal = operand.toString();
+      if (literal.contains("POINT")) {
+        String pointStr = literal.replace("'", "");
+        writer.print(pointStr);
+        return;
+      }
+    }
+
+    // if (SUPPORTED_SPATIAL_FUNCTIONS.contains(functionName.toUpperCase())) {
+    //   writer.print(functionName);
+    //   final SqlWriter.Frame frame = writer.startList("(", ")");
+    //   for (SqlNode operand : call.getOperandList()) {
+    //     writer.sep(",");
+    //     operand.unparse(writer, leftPrec, rightPrec);
+    //   }
+    //   writer.endList(frame);
+    //   return;
+    // }
+
     switch (call.getKind()) {
     case POSITION:
       final SqlWriter.Frame frame = writer.startFunCall("INSTR");
@@ -442,4 +472,58 @@ public class MysqlSqlDialect extends SqlDialect {
       throw new AssertionError(" Time unit " + timeUnit + "is not supported now.");
     }
   }
+
+
+  private static final Set<String> SUPPORTED_SPATIAL_FUNCTIONS = ImmutableSet.of(
+      "ST_AREA", "ST_DISTANCE", "ST_CONTAINS", "ST_INTERSECTS",
+      "ST_BUFFER", "ST_UNION", "ST_INTERSECTION", "ST_DIFFERENCE",
+      "ST_GEOMFROMTEXT", "ST_ASWKT", "ST_ASBINARY", "ST_ASGEOJSON",
+      "ST_GEOMETRYFROMTEXT", "ST_GEOMETRYFROMWKB", "ST_ASWKB", "ST_GEOMFROMGEOJSON",
+      "ST_ASTEXT"
+  );
+
+  @Override
+  public boolean supportsSpatialFunction(List<RexNode> projects) {
+    for (RexNode node : projects) {
+      if(node instanceof RexCall) {
+        RexCall call = (RexCall) node;
+        String functionName = call.getOperator().getName();
+        //공간 함수인지 확인
+        if (SUPPORTED_SPATIAL_FUNCTIONS.contains(functionName.toUpperCase())) {
+          //공간 함수의 매개변수 타입 확인
+          List<RelDataType> paramTypes = call.getOperands().stream()
+              .map(RexNode::getType)
+              .collect(Collectors.toList());
+
+          if (!isValidSpatialFunctionParams(functionName, paramTypes)) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  private boolean isValidSpatialFunctionParams(String functionName, List<RelDataType> paramTypes) {
+    // 공간 함수별 매개변수 타입 검사
+    switch (functionName.toUpperCase()) {
+    case "ST_DISTANCE":
+    case "ST_CONTAINS":
+      return paramTypes.size() == 2 &&
+          paramTypes.get(0).getSqlTypeName() == SqlTypeName.GEOMETRY &&
+          paramTypes.get(1).getSqlTypeName() == SqlTypeName.GEOMETRY;
+    case "ST_AREA":
+    case "ST_ASTEXT":
+      return paramTypes.size() == 1 &&
+          (paramTypes.get(0).getSqlTypeName() == SqlTypeName.GEOMETRY);
+    case "ST_GEOMFROMTEXT":
+    case "ST_GEOMETRYFROMTEXT":
+      return paramTypes.size() == 1 &&
+          (paramTypes.get(0).getSqlTypeName() == SqlTypeName.VARCHAR ||
+              paramTypes.get(0).getSqlTypeName() == SqlTypeName.CHAR);
+    default:
+      return true;
+    }
+  }
+
 }
