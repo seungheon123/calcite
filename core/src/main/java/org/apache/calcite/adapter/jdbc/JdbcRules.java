@@ -60,9 +60,15 @@ import org.apache.calcite.rex.RexProgram;
 import org.apache.calcite.rex.RexUtil;
 import org.apache.calcite.rex.RexVisitorImpl;
 import org.apache.calcite.schema.ModifiableTable;
+import org.apache.calcite.sql.SqlBasicCall;
+import org.apache.calcite.sql.SqlCall;
 import org.apache.calcite.sql.SqlDialect;
 import org.apache.calcite.sql.SqlFunction;
+import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlOperator;
+import org.apache.calcite.sql.SqlSpecialOperator;
+import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.validate.SqlValidatorUtil;
 import org.apache.calcite.tools.RelBuilder;
 import org.apache.calcite.tools.RelBuilderFactory;
@@ -252,6 +258,7 @@ public class JdbcRules {
     consumer.accept(JdbcMinusRule.create(out));
     consumer.accept(JdbcTableModificationRule.create(out));
     consumer.accept(JdbcValuesRule.create(out));
+    consumer.accept(JdbcSpatialRule.create(out));
   }
 
   /** Abstract base class for rule that converts to JDBC. */
@@ -492,11 +499,20 @@ public class JdbcRules {
     /** Creates a JdbcProjectRule. */
     public static JdbcProjectRule create(JdbcConvention out) {
       return Config.INSTANCE
-          .withConversion(Project.class, project ->
-                  (out.dialect.supportsWindowFunctions()
-                      || !project.containsOver())
-                      && !userDefinedFunctionInProject(project),
-              Convention.NONE, out, "JdbcProjectRule")
+          .withConversion(Project.class, project -> {
+              // 공간 함수가 있는지 확인
+            // boolean hasSpatialFunction = out.dialect.supportsSpatialFunction(project.getProjects());
+            //
+            //   // 공간 함수가 있으면 무조건 푸시다운
+            //   if (hasSpatialFunction) {
+            //       return true;
+            //   }
+
+              // 공간 함수가 없으면 기존 조건으로 체크
+              return (out.dialect.supportsWindowFunctions()
+                  || !project.containsOver())
+                  && !userDefinedFunctionInProject(project);
+          }, Convention.NONE, out, "JdbcProjectRule")
           .withRuleFactory(JdbcProjectRule::new)
           .toRule(JdbcProjectRule.class);
     }
@@ -1125,6 +1141,83 @@ public class JdbcRules {
       return super.visitCall(call);
     }
 
+  }
+
+  // //Spatail 함수를 위한 새로윤 규칙 추가
+  public static class JdbcSpatialRule extends JdbcConverterRule {
+    /** Creates a JdbcProjectRule. */
+    public static JdbcSpatialRule create(JdbcConvention out) {
+      return Config.INSTANCE
+          .withConversion(Project.class, project -> {
+            // 공간 함수가 있는지 확인
+            boolean hasSpatialFunction = out.dialect.supportsSpatialFunction(project.getProjects());
+
+            // 공간 함수가 있으면 무조건 푸시다운
+            if (hasSpatialFunction) {
+              return true;
+            }
+            return false;
+          }, Convention.NONE, out, "JdbcSpatialRule")
+          .withRuleFactory(JdbcSpatialRule::new)
+          .toRule(JdbcSpatialRule.class);
+    }
+
+    /** Called from the Config. */
+    protected JdbcSpatialRule(Config config) {
+      super(config);
+    }
+
+
+    @Override public boolean matches(RelOptRuleCall call) {
+      Project project = call.rel(0);
+      return project.getVariablesSet().isEmpty();
+    }
+
+    @Override public @Nullable RelNode convert(RelNode rel) {
+      final Project project = (Project) rel;
+
+      return new JdbcSpatial(
+          rel.getCluster(),
+          rel.getTraitSet().replace(out),
+          convert(
+              project.getInput(),
+              project.getInput().getTraitSet().replace(out)),
+          project.getProjects(),
+          project.getRowType());
+    }
+  }
+
+  public static class JdbcSpatial
+      extends Project
+      implements JdbcRel {
+    public JdbcSpatial(
+        RelOptCluster cluster,
+        RelTraitSet traitSet,
+        RelNode input,
+        List<? extends RexNode> projects,
+        RelDataType rowType) {
+      super(cluster, traitSet, ImmutableList.of(), input, projects, rowType, ImmutableSet.of());
+      assert getConvention() instanceof JdbcConvention;
+    }
+
+
+    @Override public JdbcSpatial copy(RelTraitSet traitSet, RelNode input,
+        List<RexNode> projects, RelDataType rowType) {
+      return new JdbcSpatial(getCluster(), traitSet, input, projects, rowType);
+    }
+
+    @Override public @Nullable RelOptCost computeSelfCost(RelOptPlanner planner,
+        RelMetadataQuery mq) {
+      RelOptCost cost = super.computeSelfCost(planner, mq);
+      if (cost == null) {
+        return null;
+      }
+      return cost.multiplyBy(JdbcConvention.COST_MULTIPLIER);
+    }
+
+    @Override public JdbcImplementor.Result implement(JdbcImplementor implementor) {
+      return implementor.implement(this);
+    }
   }
 
 }
