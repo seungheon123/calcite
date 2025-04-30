@@ -73,6 +73,8 @@ import javax.sql.DataSource;
 import static java.lang.Integer.parseInt;
 import static java.util.Objects.requireNonNull;
 
+import java.sql.Types;
+
 /**
  * Implementation of {@link Schema} that is backed by a JDBC data source.
  *
@@ -411,7 +413,8 @@ public class JdbcSchema extends JdbcBaseSchema implements Schema, Wrapper {
         break;
       }
       RelDataType sqlType =
-          sqlType(typeFactory, dataType, precision, scale, typeString);
+          // sqlType(typeFactory, dataType, precision, scale, typeString);
+         sqlType(typeFactory, dataType, typeString, precision, scale);
       boolean nullable = resultSet.getInt(11) != DatabaseMetaData.columnNoNulls;
       fieldInfo.add(columnName, sqlType).nullable(nullable);
     }
@@ -420,10 +423,22 @@ public class JdbcSchema extends JdbcBaseSchema implements Schema, Wrapper {
   }
 
   private static RelDataType sqlType(RelDataTypeFactory typeFactory, int dataType,
-      int precision, int scale, @Nullable String typeString) {
+      String typeString, int precision, int scale) {
+    LOGGER.debug("sqlType called with dataType: {}, typeString: {}, precision: {}, scale: {}",
+        dataType, typeString, precision, scale);
+
+    // MySQL의 Geometry 타입 처리
+    if ((dataType == Types.BINARY || dataType == Types.VARCHAR) && (
+        typeString.equalsIgnoreCase("GEOMETRY") || typeString.equalsIgnoreCase("POINT")
+            || typeString.equalsIgnoreCase("LINESTRING") || typeString.equalsIgnoreCase("POLYGON"))) {
+      LOGGER.debug("Converting to GEOMETRY type");
+      return typeFactory.createSqlType(SqlTypeName.GEOMETRY);
+    }
+
     // Fall back to ANY if type is unknown
     final SqlTypeName sqlTypeName =
         Util.first(SqlTypeName.getNameForJdbcType(dataType), SqlTypeName.ANY);
+    LOGGER.debug("Using sqlTypeName: {}", sqlTypeName);
     switch (sqlTypeName) {
     case ARRAY:
       RelDataType component = null;
