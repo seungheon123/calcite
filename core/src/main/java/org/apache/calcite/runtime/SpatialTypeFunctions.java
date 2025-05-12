@@ -875,6 +875,11 @@ public class SpatialTypeFunctions {
     return geom.getSRID();
   }
 
+  public static int ST_SRID(Geometry geom, int srid) {
+    return srid;
+  }
+
+
   /**
    * Returns the first point of {@code geom}.
    */

@@ -1108,7 +1108,10 @@ public abstract class ReduceExpressionsRule<C extends ReduceExpressionsRule.Conf
     }
 
     @Override public Void visitCall(RexCall call) {
-      // assume REDUCIBLE_CONSTANT until proven otherwise
+      if (call.getType().getSqlTypeName() == SqlTypeName.GEOMETRY) {
+        analyzeCall(call, Constancy.NON_CONSTANT);
+        return null;
+      }
       analyzeCall(call, Constancy.REDUCIBLE_CONSTANT);
       return null;
     }

@@ -601,7 +601,7 @@ public class JdbcRules {
     /** Creates a JdbcFilterRule. */
     public static JdbcFilterRule create(JdbcConvention out) {
       return Config.INSTANCE
-          .withConversion(Filter.class, r -> !userDefinedFunctionInFilter(r),
+          .withConversion(Filter.class, r -> hasSupportedSpatialFunction(r, out.dialect) || !userDefinedFunctionInFilter(r),
               Convention.NONE, out, "JdbcFilterRule")
           .withRuleFactory(JdbcFilterRule::new)
           .toRule(JdbcFilterRule.class);
@@ -628,6 +628,10 @@ public class JdbcRules {
               filter.getInput().getTraitSet().replace(out)),
           filter.getCondition());
     }
+  }
+
+  private static boolean hasSupportedSpatialFunction(Filter filter, SqlDialect dialect) {
+    return dialect.supportsSpatialFunction(filter.getCondition());
   }
 
   /** Implementation of {@link org.apache.calcite.rel.core.Filter} in

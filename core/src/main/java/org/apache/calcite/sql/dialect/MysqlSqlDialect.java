@@ -244,16 +244,16 @@ public class MysqlSqlDialect extends SqlDialect {
       }
     }
 
-    // if (SUPPORTED_SPATIAL_FUNCTIONS.contains(functionName.toUpperCase())) {
-    //   writer.print(functionName);
-    //   final SqlWriter.Frame frame = writer.startList("(", ")");
-    //   for (SqlNode operand : call.getOperandList()) {
-    //     writer.sep(",");
-    //     operand.unparse(writer, leftPrec, rightPrec);
-    //   }
-    //   writer.endList(frame);
-    //   return;
-    // }
+    if (SUPPORTED_SPATIAL_FUNCTIONS.contains(functionName.toUpperCase())) {
+      writer.print(functionName);
+      final SqlWriter.Frame frame = writer.startList("(", ")");
+      for (SqlNode operand : call.getOperandList()) {
+        writer.sep(",");
+        operand.unparse(writer, leftPrec, rightPrec);
+      }
+      writer.endList(frame);
+      return;
+    }
 
     switch (call.getKind()) {
     case POSITION:
@@ -483,6 +483,28 @@ public class MysqlSqlDialect extends SqlDialect {
   );
 
   @Override
+  public boolean supportsSpatialFunction(RexNode node) {
+    if (node instanceof RexCall) {
+      RexCall call = (RexCall) node;
+      String functionName = call.getOperator().getName().toUpperCase();
+
+      if (SUPPORTED_SPATIAL_FUNCTIONS.contains(functionName)) {
+        List<RelDataType> paramTypes = call.getOperands().stream()
+            .map(RexNode::getType)
+            .collect(Collectors.toList());
+        return isValidSpatialFunctionParams(functionName, paramTypes);
+      }
+      // ★ 모든 RexCall의 operand를 재귀적으로 탐색
+      for (RexNode operand : call.getOperands()) {
+        if (supportsSpatialFunction(operand)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  @Override
   public boolean supportsSpatialFunction(List<RexNode> projects) {
     for (RexNode node : projects) {
       if(node instanceof RexCall) {
@@ -509,18 +531,27 @@ public class MysqlSqlDialect extends SqlDialect {
     switch (functionName.toUpperCase()) {
     case "ST_DISTANCE":
     case "ST_CONTAINS":
-      return paramTypes.size() == 2 &&
-          paramTypes.get(0).getSqlTypeName() == SqlTypeName.GEOMETRY &&
-          paramTypes.get(1).getSqlTypeName() == SqlTypeName.GEOMETRY;
+      return true;
+      // return paramTypes.size() == 2 &&
+      //     paramTypes.get(0).getSqlTypeName() == SqlTypeName.GEOMETRY &&
+      //     paramTypes.get(1).getSqlTypeName() == SqlTypeName.GEOMETRY;
     case "ST_AREA":
     case "ST_ASTEXT":
       return paramTypes.size() == 1 &&
           (paramTypes.get(0).getSqlTypeName() == SqlTypeName.GEOMETRY);
     case "ST_GEOMFROMTEXT":
     case "ST_GEOMETRYFROMTEXT":
-      return paramTypes.size() == 1 &&
-          (paramTypes.get(0).getSqlTypeName() == SqlTypeName.VARCHAR ||
-              paramTypes.get(0).getSqlTypeName() == SqlTypeName.CHAR);
+      return
+          // 1개 파라미터 (WKT 문자열)
+          (paramTypes.size() == 1 &&
+              (paramTypes.get(0).getSqlTypeName() == SqlTypeName.VARCHAR ||
+                  paramTypes.get(0).getSqlTypeName() == SqlTypeName.CHAR))
+          ||
+          // 2개 파라미터 (WKT 문자열, SRID)
+          (paramTypes.size() == 2 &&
+              (paramTypes.get(0).getSqlTypeName() == SqlTypeName.VARCHAR ||
+                  paramTypes.get(0).getSqlTypeName() == SqlTypeName.CHAR) &&
+              paramTypes.get(1).getSqlTypeName() == SqlTypeName.INTEGER);
     default:
       return true;
     }
