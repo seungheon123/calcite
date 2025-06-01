@@ -40,6 +40,7 @@ import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlLiteral;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
+import org.apache.calcite.sql.SqlNumericLiteral;
 import org.apache.calcite.sql.SqlOperator;
 import org.apache.calcite.sql.SqlSelect;
 import org.apache.calcite.sql.SqlWriter;
@@ -232,6 +233,52 @@ public class MysqlSqlDialect extends SqlDialect {
   @Override public void unparseCall(SqlWriter writer, SqlCall call,
       int leftPrec, int rightPrec) {
     String functionName = call.getOperator().getName();
+
+    if(functionName.equalsIgnoreCase("ST_ReducePrecision")) {
+      SqlNode geom = call.operand(0);
+      SqlNode precisionNode = call.operand(1);
+
+      writer.print("ST_Simplify(");
+      geom.unparse(writer, leftPrec, rightPrec);
+      writer.print(", ");
+      // precision → tolerance 변환
+      if (precisionNode instanceof SqlNumericLiteral) {
+        int precision = ((SqlNumericLiteral) precisionNode).intValue(false);
+        double tolerance = Math.pow(10, -precision);
+        writer.print(String.valueOf(tolerance));
+      } else {
+        precisionNode.unparse(writer, leftPrec, rightPrec);
+      }
+      writer.print(")");
+      return;
+    }
+
+    if (functionName.equalsIgnoreCase("ST_MinimumRectangle")) {
+      SqlNode geom = call.operand(0);
+      writer.print("ST_Envelope(");
+      geom.unparse(writer, leftPrec, rightPrec);
+      writer.print(")");
+      return;
+    }
+
+    if (functionName.equalsIgnoreCase("ST_NPoints")) {
+      SqlNode geom = call.operand(0);
+      writer.print("ST_NumPoints(");
+      geom.unparse(writer, leftPrec, rightPrec);
+      writer.print(")");
+      return;
+    }
+
+    if (functionName.equalsIgnoreCase("ST_EnvelopesIntersect")) {
+      SqlNode geom1 = call.operand(0);
+      SqlNode geom2 = call.operand(1);
+      writer.print("MBRIntersects(");
+      geom1.unparse(writer, leftPrec, rightPrec);
+      writer.print(", ");
+      geom2.unparse(writer, leftPrec, rightPrec);
+      writer.print(")");
+      return;
+    }
 
     // CAST to GEOMETRY 처리
     if (call.getKind() == SqlKind.CAST) {
@@ -475,11 +522,90 @@ public class MysqlSqlDialect extends SqlDialect {
 
 
   private static final Set<String> SUPPORTED_SPATIAL_FUNCTIONS = ImmutableSet.of(
-      "ST_AREA", "ST_DISTANCE", "ST_CONTAINS", "ST_INTERSECTS",
-      "ST_BUFFER", "ST_UNION", "ST_INTERSECTION", "ST_DIFFERENCE",
-      "ST_GEOMFROMTEXT", "ST_ASWKT", "ST_ASBINARY", "ST_ASGEOJSON",
-      "ST_GEOMETRYFROMTEXT", "ST_GEOMETRYFROMWKB", "ST_ASWKB", "ST_GEOMFROMGEOJSON",
-      "ST_ASTEXT"
+      "MBRCONTAINS",
+      "MBRCOVEREDBY",
+      "MBRCOVERS",
+      "MBRCROSSES",
+      "MBRDISJOINT",
+      "MBREQUALS",
+      "MBRINTERSECTS",
+      "MBROVERLAPS",
+      "MBRTOUCHES",
+      "MBRWITHIN",
+      "POLYGON",
+      "ST_AREA",
+      "ST_ASBINARY",
+      "ST_ASGEOJSON",
+      "ST_ASTEXT",
+      "ST_ASWKB",
+      "ST_ASWKT",
+      "ST_BUFFER",
+      "ST_CLOSESTPOINT",
+      "ST_CONTAINS",
+      "ST_COVEREDBY",
+      "ST_COVERS",
+      "ST_CROSSES",
+      "ST_DIFFERENCE",
+      "ST_DISJOINT",
+      "ST_DISTANCE",
+      "ST_DISTANCE_SPHERE",
+      "ST_DWITHIN",
+      "ST_ENDPOINT",
+      "ST_ENVELOPE",
+      "ST_EXTERIORRING",
+      "ST_FRECHETDISTANCE",
+      "ST_GEOHASH",
+      "ST_GEOMETRYFROMTEXT",
+      "ST_GEOMETRYFROMWKB",
+      "ST_GEOMETRYN",
+      "ST_GEOMFROMGEOJSON",
+      "ST_GEOMFROMTEXT",
+      "ST_GEOMFROMWKB",
+      "ST_INTERIORRINGN",
+      "ST_INTERSECTS",
+      "ST_INVALIDATED",
+      "ST_ISEMPTY",
+      "ST_ISCLOSED",
+      "ST_ISVALID",
+      "ST_ISVALIDATED",
+      "ST_LATFROMGEOHASH",
+      "ST_LATITUDE",
+      "ST_LINEFROMTEXT",
+      "ST_LINEFROMWKB",
+      "ST_LINEINTERPOLATEPOINT",
+      "ST_LINESTRINGFROMTEXT",
+      "ST_LINESTRINGFROMWKB",
+      "ST_MAKEENVELOPE",
+      "ST_MLINEFROMTEXT",
+      "ST_MPOINTFROMTEXT",
+      "ST_MPOLYFROMTEXT",
+      "ST_MULTILINESTRINGFROMTEXT",
+      "ST_MULTIPOINTFROMTEXT",
+      "ST_MULTIPOLYGONFROMTEXT",
+      "ST_NUMGEOMETRIES",
+      "ST_NUMINTERIORRING",
+      "ST_NUMPOINTS",
+      "ST_OVERLAPS",
+      "ST_POINTATDISTANCE",
+      "ST_POINTFROMTEXT",
+      "ST_POINTFROMWKB",
+      "ST_POLYGONFROMTEXT",
+      "ST_POLYGONFROMWKB",
+      "ST_POLYFROMTEXT",
+      "ST_POLYFROMWKB",
+      "ST_SIMPLIFY",
+      "ST_SWAPXY",
+      "ST_TOUCHES",
+      "ST_TRANSFORM",
+      "ST_UNION",
+      "ST_VALIDATE",
+      "ST_WITHIN",
+      "ST_X",
+      "ST_Y",
+      "ST_REDUCEPRECISION",
+      "ST_MINIMUMRECTANGLE",
+      "ST_NPOINTS",
+      "ST_ENVELOPESINTERSECT"
   );
 
   @Override
@@ -489,12 +615,10 @@ public class MysqlSqlDialect extends SqlDialect {
       String functionName = call.getOperator().getName().toUpperCase();
 
       if (SUPPORTED_SPATIAL_FUNCTIONS.contains(functionName)) {
-        List<RelDataType> paramTypes = call.getOperands().stream()
-            .map(RexNode::getType)
-            .collect(Collectors.toList());
-        return isValidSpatialFunctionParams(functionName, paramTypes);
+        // (1) SUPPORTED_SPATIAL_FUNCTIONS에 있으면 true
+        return true;
       }
-      // ★ 모든 RexCall의 operand를 재귀적으로 탐색
+      // (2) 모든 operand(파라미터)에 대해 재귀적으로 supportsSpatialFunction 검사
       for (RexNode operand : call.getOperands()) {
         if (supportsSpatialFunction(operand)) {
           return true;
@@ -503,6 +627,26 @@ public class MysqlSqlDialect extends SqlDialect {
     }
     return false;
   }
+  // public boolean supportsSpatialFunction(RexNode node) {
+  //   if (node instanceof RexCall) {
+  //     RexCall call = (RexCall) node;
+  //     String functionName = call.getOperator().getName().toUpperCase();
+  //
+  //     if (SUPPORTED_SPATIAL_FUNCTIONS.contains(functionName)) {
+  //       List<RelDataType> paramTypes = call.getOperands().stream()
+  //           .map(RexNode::getType)
+  //           .toList();
+  //       return true;
+  //     }
+  //     // ★ 모든 RexCall의 operand를 재귀적으로 탐색
+  //     for (RexNode operand : call.getOperands()) {
+  //       if (supportsSpatialFunction(operand)) {
+  //         return true;
+  //       }
+  //     }
+  //   }
+  //   return false;
+  // }
 
   @Override
   public boolean supportsSpatialFunction(List<RexNode> projects) {
@@ -513,17 +657,18 @@ public class MysqlSqlDialect extends SqlDialect {
         //공간 함수인지 확인
         if (SUPPORTED_SPATIAL_FUNCTIONS.contains(functionName.toUpperCase())) {
           //공간 함수의 매개변수 타입 확인
-          List<RelDataType> paramTypes = call.getOperands().stream()
-              .map(RexNode::getType)
-              .collect(Collectors.toList());
+          // List<RelDataType> paramTypes = call.getOperands().stream()
+          //     .map(RexNode::getType)
+          //     .collect(Collectors.toList());
+          return true;
 
-          if (!isValidSpatialFunctionParams(functionName, paramTypes)) {
-            return false;
-          }
+          // if (!isValidSpatialFunctionParams(functionName, paramTypes)) {
+          //   return false;
+          // }
         }
       }
     }
-    return true;
+    return false;
   }
 
   private boolean isValidSpatialFunctionParams(String functionName, List<RelDataType> paramTypes) {
