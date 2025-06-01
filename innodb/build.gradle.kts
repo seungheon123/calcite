@@ -33,9 +33,11 @@ dependencies {
     implementation("org.apache.calcite.avatica:avatica-core")
     implementation("org.apache.commons:commons-lang3")
     implementation("org.slf4j:slf4j-api")
-
+    implementation("ch.qos.logback:logback-classic:1.2.11")
+    implementation("mysql:mysql-connector-java:8.0.33")
+    implementation("org.postgresql:postgresql:42.2.5") // 버전은 최신으로 설정하세요
+//    implementation("net.postgis:postgis-jdbc:2.5.1")
     testImplementation(project(":testkit"))
-    testRuntimeOnly("org.apache.logging.log4j:log4j-slf4j-impl")
     annotationProcessor("org.immutables:value")
     compileOnly("org.immutables:value-annotations")
     compileOnly("com.google.code.findbugs:jsr305")

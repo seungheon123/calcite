@@ -99,6 +99,7 @@ dependencies {
     testImplementation(kotlin("stdlib-jdk8"))
     testImplementation(kotlin("test"))
     testImplementation(kotlin("test-junit5"))
+    testImplementation("mysql:mysql-connector-java:8.0.33")
 
     // proj4j-epsg must not be converted to 'implementation' due to its license
     testRuntimeOnly("org.locationtech.proj4j:proj4j-epsg")
